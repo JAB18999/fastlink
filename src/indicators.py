@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Dict, List
+import os
+from typing import Dict, Iterable, List
 
 import pandas as pd
 import requests
@@ -28,9 +27,7 @@ class OkxCandlesClient:
 
         raw_data = payload.get("data", [])
         if not raw_data:
-            return pd.DataFrame(
-                columns=["timestamp", "open", "high", "low", "close", "volume"]
-            )
+            return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
         records = []
         for item in raw_data:
@@ -51,8 +48,7 @@ class OkxCandlesClient:
         df = pd.DataFrame(records)
         if df.empty:
             return df
-        df = df.sort_values("timestamp").reset_index(drop=True)
-        return df
+        return df.sort_values("timestamp").reset_index(drop=True)
 
     def ensure_data_dir(self):
         RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -70,7 +66,7 @@ class OkxCandlesClient:
         return pd.read_csv(file_path, parse_dates=["timestamp"])
 
 
-def fetch_all_timeframes(symbol: str, timeframes: List[str], limit: int = DEFAULT_LIMIT) -> Dict[str, pd.DataFrame]:
+def fetch_all_timeframes(symbol: str, timeframes: Iterable[str], limit: int = DEFAULT_LIMIT) -> Dict[str, pd.DataFrame]:
     client = OkxCandlesClient()
     result: Dict[str, pd.DataFrame] = {}
     for timeframe in timeframes:
@@ -80,7 +76,7 @@ def fetch_all_timeframes(symbol: str, timeframes: List[str], limit: int = DEFAUL
     return result
 
 
-def load_all_timeframes(symbol: str, timeframes: List[str]) -> Dict[str, pd.DataFrame]:
+def load_all_timeframes(symbol: str, timeframes: Iterable[str]) -> Dict[str, pd.DataFrame]:
     client = OkxCandlesClient()
     result: Dict[str, pd.DataFrame] = {}
     for timeframe in timeframes:

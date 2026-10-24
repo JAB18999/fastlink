@@ -1,55 +1,110 @@
 from __future__ import annotations
 
+import html
+import json
 from pathlib import Path
-from typing import Dict, List
-
-from src.config import REPORTS_DIR
+from typing import Any, Dict, Iterable, List, Optional
 
 
-def build_report(markdown: str, report_path: str) -> str:
-    out = Path(report_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(markdown, encoding="utf-8")
-    return str(out)
+def _render_metrics_cards(summary: Dict[str, Any]) -> str:
+    cards = [
+        ("当前状态", summary.get("market_state", "中性")),
+        ("当前信号", summary.get("signal_type", "none")),
+        ("回测收益", f"{summary.get('total_return', 0.0):.2%}"),
+        ("最大回撤", f"{summary.get('max_drawdown', 0.0):.2%}"),
+    ]
+    return "\n".join(
+        f"<div class='card'><h3>{label}</h3><p>{value}</p></div>" for label, value in cards
+    )
 
 
-def generate_markdown_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict]) -> str:
-    lines: List[str] = []
-    lines.append(f"# {symbol} 永续合约量化策略分析报告")
-    lines.append("")
-    lines.append("## 1. 当前市场状态")
-    lines.append("")
-    for timeframe, meta in market_data.items():
-        lines.append(f"- {timeframe}: {meta['state']} | close={meta['close']:.4f} | rsi={meta['rsi']:.2f} | macd_hist={meta['macd_hist']:.4f}")
-    lines.append("")
-    lines.append("## 2. 当前有效策略信号")
-    lines.append("")
-    lines.append(f"- 触发信号: {signal_summary.get('signal_type', 'none')}")
-    lines.append(f"- 信号依据: {signal_summary.get('signal_reason', '未触发有效信号')}")
-    lines.append(f"- 市场状态: {strategy_summary.get('market_state', '中性')}")
-    lines.append("")
-    lines.append("## 3. 历史胜率与样本数量")
-    lines.append("")
-    for signal_name, stats in performance.items():
-        lines.append(f"- {signal_name}: 样本数={stats.get('count', 0)} | 胜率={stats.get('win_rate', 0.0):.2%} | 平均收益={stats.get('avg_return', 0.0):.2%}")
-    lines.append("")
-    lines.append("## 4. 策略表现对比")
-    lines.append("")
-    for item in strategy_summary.get("comparison", []):
-        long = item["long_open"]
-        short = item["short_open"]
-        lines.append(
-            f"- {item['timeframe']}: 市场状态={item['market_state']} | 多头开仓胜率={long.get('win_rate', 0.0):.2%} | 空头开仓胜率={short.get('win_rate', 0.0):.2%}"
+def _render_signal_table(rows: Iterable[Dict[str, Any]]) -> str:
+    html_rows = []
+    for row in rows:
+        html_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('timeframe', '')))}</td>"
+            f"<td>{html.escape(str(row.get('market_state', '')))}</td>"
+            f"<td>{html.escape(str(row.get('signal_type', '')))}</td>"
+            f"<td>{html.escape(str(row.get('signal_reason', '')))}</td>"
+            "</tr>"
         )
-    lines.append("")
-    lines.append("## 5. 结论")
-    lines.append("")
-    lines.append("- 依据多周期趋势与技术指标，当前盘面仍需要结合具体周期的强弱状态进行动态管理。")
-    lines.append("- 本框架可持续积累历史信号样本，用于后续策略稳定性评估和参数优化。")
-    lines.append("")
-    return "\n".join(lines)
+    return "".join(html_rows)
 
 
-def write_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict], report_path: str = str(REPORTS_DIR / "analysis_report.md")) -> str:
-    markdown = generate_markdown_report(symbol, market_data, strategy_summary, signal_summary, performance)
-    return build_report(markdown, report_path)
+def generate_dashboard_html(summary: Dict[str, Any], best_results: Optional[List[Dict[str, Any]]] = None, output_path: str = "reports/dashboard.html") -> str:
+    signals = summary.get("signals", [])
+    best_results = best_results or []
+
+    best_rows = []
+    for result in best_results[:5]:
+        best_rows.append(
+            "<tr>"
+            f"<td>{html.escape(result.get('strategy_name', ''))}</td>"
+            f"<td>{html.escape(json.dumps(result.get('params', {}), ensure_ascii=False))}</td>"
+            f"<td>{result.get('total_return', 0.0):.2%}</td>"
+            f"<td>{result.get('win_rate', 0.0):.2%}</td>"
+            "</tr>"
+        )
+
+    html_doc = f"""
+    <!doctype html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="utf-8">
+      <title>fastlink 策略 dashboard</title>
+      <style>
+        body {{ font-family: Arial, sans-serif; margin: 24px; background: #0b1020; color: #e5ecff; }}
+        .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }}
+        .card {{ background: #151d32; border: 1px solid #273457; border-radius: 12px; padding: 20px; }}
+        .card h3 {{ margin: 0 0 8px; font-size: 14px; color: #9bb5ff; }}
+        .card p {{ margin: 0; font-size: 24px; font-weight: bold; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
+        th, td {{ border: 1px solid #2c3c66; padding: 10px; text-align: left; }}
+        th {{ background: #1a2746; }}
+        h1, h2 {{ color: #f0f6ff; }}
+      </style>
+    </head>
+    <body>
+      <h1>fastlink 策略分析 Dashboard</h1>
+      <div class="grid">
+        {_render_metrics_cards(summary)}
+      </div>
+
+      <h2>多周期信号</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>周期</th>
+            <th>市场状态</th>
+            <th>当前信号</th>
+            <th>依据</th>
+          </tr>
+        </thead>
+        <tbody>
+          {_render_signal_table(signals)}
+        </tbody>
+      </table>
+
+      <h2>最优策略参数</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>策略</th>
+            <th>参数</th>
+            <th>收益率</th>
+            <th>命中率</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(best_rows) if best_rows else '<tr><td colspan="4">暂无优化结果</td></tr>'}
+        </tbody>
+      </table>
+    </body>
+    </html>
+    """
+
+    out_path = Path(output_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html_doc, encoding="utf-8")
+    return str(out_path)

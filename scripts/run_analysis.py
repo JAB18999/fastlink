@@ -3,17 +3,21 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable, List
 
-from src.analytics import evaluate_signal_performance, summarize_strategy_comparison
-from src.config import DEFAULT_LIMIT, DEFAULT_LOOKAHEAD, DEFAULT_SYMBOL, REPORTS_DIR, TIMEFRAMES
+from src.analytics import evaluate_signal_performance
+from src.backtest import run_backtest
+from src.config import DEFAULT_LIMIT, DEFAULT_LOOKAHEAD, DEFAULT_SYMBOL, LOGS_DIR, OPTIMIZATION_DIR, REPORTS_DIR, TIMEFRAMES
+from src.dashboard import generate_dashboard_html
 from src.data_manager import fetch_all_timeframes, load_all_timeframes
 from src.indicators import enrich_market_data
+from src.optimizer import optimize_strategies
 from src.reporter import write_report
 from src.strategy import classify_market_state, generate_signal_history, get_latest_signal
+from src.trade_logger import append_trade_log, summarize_trade_log
 
 
-def load_or_fetch_market_data(symbol: str, timeframes: Iterable[str], limit: int) -> Dict[str, dict]:
+def load_or_fetch_market_data(symbol: str, timeframes: Iterable[str], limit: int) -> Dict[str, Any]:
     frames = load_all_timeframes(symbol, list(timeframes))
     missing = {tf: df for tf, df in frames.items() if df.empty}
     if missing:
@@ -22,52 +26,68 @@ def load_or_fetch_market_data(symbol: str, timeframes: Iterable[str], limit: int
     return frames
 
 
-def analyze_symbol(symbol: str, timeframes: Iterable[str], limit: int = DEFAULT_LIMIT, lookahead: int = DEFAULT_LOOKAHEAD) -> Dict[str, object]:
+def analyze_symbol(
+    symbol: str,
+    timeframes: Iterable[str],
+    limit: int = DEFAULT_LIMIT,
+    lookahead: int = DEFAULT_LOOKAHEAD,
+    strategy_name: str = "trend_following",
+    run_backtest_flag: bool = False,
+    optimize_flag: bool = False,
+    dashboard_flag: bool = False,
+) -> Dict[str, Any]:
     frames = load_or_fetch_market_data(symbol, timeframes, limit)
-    enriched: Dict[str, dict] = {}
-    comparison: List[dict] = []
+    enriched: Dict[str, Any] = {}
+    market_data: Dict[str, Any] = {}
+    comparisons: List[Dict[str, Any]] = []
+    primary_df: Any = None
 
     for timeframe, df in frames.items():
         if df.empty:
             continue
         chart = enrich_market_data(df)
-        signal_history = generate_signal_history(chart)
-        signal_history["state"] = signal_history.apply(lambda row: classify_market_state(signal_history.iloc[: row.name + 1]).get("state"), axis=1)
-        signal_history["signal_type"] = signal_history["signal_type"].fillna("none")
-        enriched[timeframe] = signal_history
+        chart = generate_signal_history(chart, strategy_name=strategy_name)
+        chart["state"] = chart.apply(lambda row: classify_market_state(chart.iloc[: row.name + 1]).get("state", "中性"), axis=1)
+        enriched[timeframe] = chart
 
-        comparison.append(
+        if primary_df is None:
+            primary_df = chart
+
+        state = classify_market_state(chart)
+        market_data[timeframe] = {
+            "state": state.get("state", "中性"),
+            "close": float(chart.iloc[-1].get("close", 0.0)),
+            "rsi": float(chart.iloc[-1].get("rsi", 50.0)),
+            "macd_hist": float(chart.iloc[-1].get("macd_hist", 0.0)),
+        }
+
+        perf = evaluate_signal_performance(chart, lookahead=lookahead)
+        comparisons.append(
             {
                 "timeframe": timeframe,
-                "market_state": classify_market_state(signal_history).get("state", "中性"),
-                "long_open": evaluate_signal_performance(signal_history, lookahead=lookahead).get("long_open", {"count": 0, "win_rate": 0.0, "avg_return": 0.0}),
-                "short_open": evaluate_signal_performance(signal_history, lookahead=lookahead).get("short_open", {"count": 0, "win_rate": 0.0, "avg_return": 0.0}),
+                "market_state": state.get("state", "中性"),
+                "signal_type": get_latest_signal(chart, strategy_name=strategy_name).get("signal_type", "none"),
+                "signal_reason": get_latest_signal(chart, strategy_name=strategy_name).get("signal_reason", ""),
+                "long_open": perf.get("long_open", {"count": 0, "win_rate": 0.0, "avg_return": 0.0}),
+                "short_open": perf.get("short_open", {"count": 0, "win_rate": 0.0, "avg_return": 0.0}),
             }
         )
 
-    market_data = {}
-    for timeframe, chart in enriched.items():
-        latest = chart.iloc[-1]
-        state_info = classify_market_state(chart)
-        market_data[timeframe] = {
-            "state": state_info.get("state", "中性"),
-            "close": float(latest.get("close", 0.0)),
-            "rsi": float(latest.get("rsi", 50.0)),
-            "macd_hist": float(latest.get("macd_hist", 0.0)),
-        }
+    if primary_df is None:
+        raise ValueError(f"No market data available for symbol {symbol}")
 
-    signal_summary = get_latest_signal(enriched[timeframes[0]]) if enriched else {"signal_type": "none", "signal_reason": "无数据"}
-    performance = evaluate_signal_performance(enriched[timeframes[0]], lookahead=lookahead) if enriched else {}
-
+    signal_summary = get_latest_signal(primary_df, strategy_name=strategy_name)
+    performance = evaluate_signal_performance(primary_df, lookahead=lookahead)
     strategy_summary = {
         "market_state": signal_summary.get("state", "中性"),
-        "comparison": comparison,
+        "comparison": comparisons,
     }
 
-    report_path = str(REPORTS_DIR / f"{symbol.replace('/', '_')}_analysis.md")
+    report_filename = f"{symbol.replace('/', '_')}_analysis.md"
+    report_path = str(REPORTS_DIR / report_filename)
     write_report(symbol, market_data, strategy_summary, signal_summary, performance, report_path)
 
-    return {
+    analysis_summary: Dict[str, Any] = {
         "symbol": symbol,
         "timeframes": list(timeframes),
         "market_data": market_data,
@@ -77,24 +97,68 @@ def analyze_symbol(symbol: str, timeframes: Iterable[str], limit: int = DEFAULT_
         "report_path": report_path,
     }
 
+    if run_backtest_flag:
+        bt = run_backtest(primary_df, strategy_name=strategy_name)
+        analysis_summary["backtest"] = bt
+        for trade in bt["trade_log"]:
+            if "type" in trade and trade["type"].endswith(("open", "add", "reduce", "close")):
+                append_trade_log(trade, str(LOGS_DIR / "trades.jsonl"))
+        analysis_summary["trade_log_summary"] = summarize_trade_log(str(LOGS_DIR / "trades.jsonl"))
+
+    if optimize_flag:
+        best_results = optimize_strategies(primary_df, strategy_names=[strategy_name], save_path=str(OPTIMIZATION_DIR / "best_params.json"))
+        analysis_summary["optimization"] = best_results
+    else:
+        optimization_file = OPTIMIZATION_DIR / "best_params.json"
+        if optimization_file.exists():
+            analysis_summary["optimization"] = json.loads(optimization_file.read_text(encoding="utf-8"))
+
+    if dashboard_flag:
+        best_results = analysis_summary.get("optimization", [])
+        summary_for_dashboard = {
+            "market_state": signal_summary.get("state", "中性"),
+            "signal_type": signal_summary.get("signal_type", "none"),
+            "total_return": analysis_summary.get("backtest", {}).get("total_return", 0.0),
+            "max_drawdown": analysis_summary.get("backtest", {}).get("max_drawdown", 0.0),
+            "signals": [
+                {
+                    "timeframe": timeframe,
+                    "market_state": meta["state"],
+                    "signal_type": get_latest_signal(enriched[timeframe], strategy_name=strategy_name).get("signal_type", "none"),
+                    "signal_reason": get_latest_signal(enriched[timeframe], strategy_name=strategy_name).get("signal_reason", ""),
+                }
+                for timeframe, meta in market_data.items()
+            ],
+        }
+        dashboard_path = str(REPORTS_DIR / "dashboard.html")
+        analysis_summary["dashboard_path"] = generate_dashboard_html(summary_for_dashboard, best_results, dashboard_path)
+
+    return analysis_summary
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SOL 永续合约量化策略分析系统")
-    parser.add_argument("--symbol", default=DEFAULT_SYMBOL, help="交易对，例如 BTC-USDT-SWAP")
+    parser.add_argument("--symbol", default=DEFAULT_SYMBOL, help="交易对，例如 SOL-USDT-SWAP")
     parser.add_argument("--timeframes", nargs="*", default=TIMEFRAMES, help="分析周期，例如 5m 15m 1H")
-    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="下载的 K 线数量")
-    parser.add_argument("--lookahead", type=int, default=DEFAULT_LOOKAHEAD, help="回看收益窗口（K 线数量）")
+    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="下载 K 线数据数量")
+    parser.add_argument("--lookahead", type=int, default=DEFAULT_LOOKAHEAD, help="胜率评估的未来窗口长度")
+    parser.add_argument("--strategy", default="trend_following", help="策略名称：trend_following")
+    parser.add_argument("--run-backtest", action="store_true", help="执行回测并记录交易日志")
+    parser.add_argument("--optimize", action="store_true", help="进行参数优化搜索")
+    parser.add_argument("--dashboard", action="store_true", help="生成 dashboard HTML 页面")
     args = parser.parse_args()
 
-    result = analyze_symbol(args.symbol, args.timeframes, limit=args.limit, lookahead=args.lookahead)
-    print(json.dumps({
-        "symbol": result["symbol"],
-        "market_data": result["market_data"],
-        "signal_summary": result["signal_summary"],
-        "strategy_summary": result["strategy_summary"],
-        "performance": result["performance"],
-        "report_path": result["report_path"],
-    }, ensure_ascii=False, indent=2))
+    result = analyze_symbol(
+        args.symbol,
+        args.timeframes,
+        limit=args.limit,
+        lookahead=args.lookahead,
+        strategy_name=args.strategy,
+        run_backtest_flag=args.run_backtest,
+        optimize_flag=args.optimize,
+        dashboard_flag=args.dashboard,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

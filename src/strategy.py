@@ -77,8 +77,14 @@ def calculate_dmi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         axis=1,
     ).max(axis=1)
 
-    plus_di = (100 * plus_dm.rolling(window=period, min_periods=period).sum() / tr.rolling(window=period, min_periods=period).sum()).fillna(0)
-    minus_di = (100 * minus_dm.rolling(window=period, min_periods=period).sum() / tr.rolling(window=period, min_periods=period).sum()).fillna(0)
+    plus_di = (
+        100 * plus_dm.rolling(window=period, min_periods=period).sum()
+        / tr.rolling(window=period, min_periods=period).sum()
+    ).fillna(0)
+    minus_di = (
+        100 * minus_dm.rolling(window=period, min_periods=period).sum()
+        / tr.rolling(window=period, min_periods=period).sum()
+    ).fillna(0)
     dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, pd.NA)).fillna(0)
     adx = dx.ewm(alpha=1 / period, adjust=False).mean()
 
@@ -118,15 +124,13 @@ def enrich_market_data(df: pd.DataFrame) -> pd.DataFrame:
     df["sma_5"] = calculate_sma(df["close"], 5)
     df["sma_10"] = calculate_sma(df["close"], 10)
     df["sma_20"] = calculate_sma(df["close"], 20)
-
     df["ema_12"] = calculate_ema(df["close"], 12)
     df["ema_26"] = calculate_ema(df["close"], 26)
 
-    df = calculate_macd(df)
+    df = calculate_macd(df, fast=12, slow=26, signal=9)
     df["rsi_14"] = calculate_rsi(df["close"], 14)
     df = calculate_bollinger(df)
     df = calculate_atr(df)
     df = calculate_dmi(df)
-
     df["rsi"] = df["rsi_14"]
     return df

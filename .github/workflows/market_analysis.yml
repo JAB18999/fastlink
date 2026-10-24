@@ -1,0 +1,176 @@
+# fastlink
+
+Fastlink 是一个基于 OKX 永续合约行情的量化研究与分析框架，聚焦于：
+
+- 行情数据获取与缓存
+- 多周期趋势分析
+- 技术指标计算
+- 策略信号生成
+- 历史胜率统计
+- 策略比较与参数优化
+- 回测逻辑与交易日志
+- GitHub Actions 自动运行
+- 可视化 dashboard 报告
+
+## 项目结构
+
+```text
+fastlink/
+├── .github/
+│   └── workflows/
+│       └── market_analysis.yml
+├── data/
+│   └── raw/
+├── logs/
+├── optimization/
+├── reports/
+├── scripts/
+│   └── run_analysis.py
+├── src/
+│   ├── analytics.py
+│   ├── backtest.py
+│   ├── config.py
+│   ├── dashboard.py
+│   ├── data_manager.py
+│   ├── indicators.py
+│   ├── main.py
+│   ├── optimizer.py
+│   ├── reporter.py
+│   ├── strategy.py
+│   ├── trade_logger.py
+│   └── __init__.py
+├── .gitignore
+├── README.md
+├── requirements.txt
+└── .python-version
+```
+
+## 运行方式
+
+### 安装依赖
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 运行基础分析
+
+```bash
+python scripts/run_analysis.py --symbol SOL-USDT-SWAP --timeframes 5m 15m 30m 1H 2H
+```
+
+### 执行回测
+
+```bash
+python scripts/run_analysis.py --symbol SOL-USDT-SWAP --run-backtest
+```
+
+### 执行参数优化
+
+```bash
+python scripts/run_analysis.py --symbol SOL-USDT-SWAP --optimize
+```
+
+### 生成 dashboard
+
+```bash
+python scripts/run_analysis.py --symbol SOL-USDT-SWAP --run-backtest --optimize --dashboard
+```
+
+## 支持的分析模块
+
+### 1. 行情数据管理
+
+- 数据源：OKX
+- 数据类型：K线数据
+- 周期：5m / 15m / 30m / 1H / 2H
+- 自动缓存到 data/raw/
+- 数据完整性检查与读取
+
+### 2. 市场趋势分析
+
+- 强势多头
+- 弱势多头
+- 箱体震荡
+- 弱势空头
+- 强势空头
+- 多周期综合判断
+
+### 3. 技术指标分析
+
+- MA
+- MACD
+- RSI
+- BOLL
+- ATR
+- DMI
+
+### 4. 策略信号分析
+
+- 单指标策略
+- 双指标组合策略
+- 多周期策略
+- 信号类别：
+  - 多头开仓 / 加仓 / 减仓 / 平仓
+  - 空头开仓 / 加仓 / 减仓 / 平仓
+
+### 5. 策略胜率评估
+
+- 历史信号统计
+- 后续价格表现
+- 多头/空头胜率
+- 不同持有窗口表现
+- 不同市场状态表现
+
+### 6. 策略比较与参数优化
+
+- 单指标策略比较
+- 双指标组合比较
+- 多周期策略比较
+- 参数网格搜索
+- 最优参数保存到 optimization/best_params.json
+
+### 7. 回测模块
+
+- 模拟订单执行
+- 按信号开/加/减/平
+- 计算收益率
+- 最大回撤
+- 命中率
+- 交易日志输出
+
+### 8. 交易日志与可视化报告
+
+- 日志为 JSON Lines 格式，保存到 logs/trades.jsonl
+- 可生成 dashboard.html 报告，查看多周期信号、最优参数和收益概览
+
+## GitHub Actions 自动化
+
+已提供 GitHub Actions workflow，支持：
+
+- 定时拉取行情
+- 自动执行分析
+- 自动生成 report
+- 自动保存性能和优化结果
+
+## 说明
+
+本项目偏重量化研究框架，适合：
+
+- 策略构思验证
+- 数据驱动分析
+- 参数搜索
+- 回测对比
+- 自动报告输出
+
+不直接提供上线实盘执行逻辑，适合研究和系统搭建。
+
+## 后续扩展建议
+
+- 接入数据库持久化
+- 增加更复杂的策略组合
+- 接入更全面的回测和统计模块
+- 增加前端图表界面
+- 扩展更多交易所和更多周期对象

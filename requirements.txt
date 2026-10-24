@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.python-version
+
+# IDE
+.vscode/
+.idea/
+
+# Local runtime files
+.DS_Store
+*.log
+
+# Data caches
+cache/
+
+# Jupyter
+.ipynb_checkpoints/

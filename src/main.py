@@ -1,159 +1,97 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
-import pandas as pd
-
-from src.config import DEFAULT_FEE_RATE, DEFAULT_INITIAL_CAPITAL
-from src.strategy import generate_signal_history
-from src.strategy_combo import generate_combined_signal_history
+import html
+from typing import Dict, List
 
 
-DEFAULT_BACKTEST_PARAMS = {
-    "fast_window": 12,
-    "slow_window": 26,
-    "rsi_buy": 55,
-    "rsi_sell": 45,
-    "rsi_add": 60,
-    "rsi_reduce": 50,
-}
+def generate_html_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict], backtest: Dict[str, object] | None = None) -> str:
+    rows = []
+    for timeframe, meta in market_data.items():
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(timeframe))}</td>"
+            f"<td>{html.escape(str(meta.get('state', '中性')))}</td>"
+            f"<td>{meta.get('close', 0.0):.4f}</td>"
+            f"<td>{meta.get('rsi', 50.0):.2f}</td>"
+            f"<td>{meta.get('macd_hist', 0.0):.4f}</td>"
+            "</tr>"
+        )
+
+    perf_rows = []
+    for signal_name, stats in performance.items():
+        perf_rows.append(
+            "<tr>"
+            f"<td>{html.escape(signal_name)}</td>"
+            f"<td>{stats.get('count', 0)}</td>"
+            f"<td>{stats.get('win_rate', 0.0):.2%}</td>"
+            f"<td>{stats.get('avg_return', 0.0):.2%}</td>"
+            "</tr>"
+        )
+
+    bt = backtest or {}
+    html = f"""
+    <!doctype html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="utf-8">
+      <title>{html.escape(symbol)} 策略研究报告</title>
+      <style>
+        body {{ font-family: Arial, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }}
+        .card {{ background: #111827; border: 1px solid #334155; border-radius: 12px; padding: 18px; margin-bottom: 16px; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+        th, td {{ border: 1px solid #334155; padding: 10px; text-align: left; }}
+        th {{ background: #1e293b; }}
+        h2 {{ margin-top: 24px; }}
+      </style>
+    </head>
+    <body>
+      <h1>{html.escape(symbol)} 永续合约量化策略分析报告</h1>
+
+      <div class="card">
+        <h2>1. 当前市场状态</h2>
+        <table>
+          <thead><tr><th>周期</th><th>状态</th><th>收盘</th><th>RSI</th><th>MACD Hist</th></tr></thead>
+          <tbody>{''.join(rows)}</tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>2. 当前有效信号</h2>
+        <p>信号类型：{html.escape(str(signal_summary.get('signal_type', 'none')))}</p>
+        <p>依据：{html.escape(str(signal_summary.get('signal_reason', '无明确信号')))}</p>
+        <p>多周期结论：{html.escape(str(strategy_summary.get('market_state', '中性')))}</p>
+      </div>
+
+      <div class="card">
+        <h2>3. 历史胜率与样本数量</h2>
+        <table>
+          <thead><tr><th>信号</th><th>样本数</th><th>胜率</th><th>平均收益</th></tr></thead>
+          <tbody>{''.join(perf_rows)}</tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>4. 回测摘要</h2>
+        <p>总收益率：{bt.get('total_return', 0.0):.2%}</p>
+        <p>净利润：{bt.get('net_profit', 0.0):.2f}</p>
+        <p>最大回撤：{bt.get('max_drawdown', 0.0):.2%}</p>
+        <p>交易次数：{bt.get('trades', 0)}</p>
+        <p>命中率：{bt.get('win_rate', 0.0):.2%}</p>
+      </div>
+    </body>
+    </html>
+    """
+    return html
 
 
-def calculate_drawdown(equity_curve: List[float]) -> Dict[str, Any]:
-    if not equity_curve:
-        return {"max_drawdown": 0.0, "drawdown_series": []}
-
-    peak = equity_curve[0]
-    drawdown_series = []
-    max_drawdown = 0.0
-    for value in equity_curve:
-        if value > peak:
-            peak = value
-        dd = (peak - value) / peak if peak else 0.0
-        drawdown_series.append(dd)
-        if dd > max_drawdown:
-            max_drawdown = dd
-
-    return {"max_drawdown": float(max_drawdown), "drawdown_series": drawdown_series}
+def write_html_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict], backtest: Dict[str, object] | None = None, report_path: str = "reports/analysis_report.html") -> str:
+    html_text = generate_html_report(symbol, market_data, strategy_summary, signal_summary, performance, backtest)
+    with open(report_path, "w", encoding="utf-8") as fp:
+        fp.write(html_text)
+    return report_path
 
 
-def run_backtest(
-    df: pd.DataFrame,
-    strategy_name: str = "trend_following",
-    params: Optional[Dict[str, Any]] = None,
-    initial_capital: float = DEFAULT_INITIAL_CAPITAL,
-    fee_rate: float = DEFAULT_FEE_RATE,
-    strategy_mode: str = "standard",
-) -> Dict[str, Any]:
-    if df.empty:
-        return {"total_return": 0.0, "net_profit": 0.0, "trades": 0, "win_rate": 0.0, "max_drawdown": 0.0, "equity_curve": [], "drawdown_series": []}
-
-    params = {**DEFAULT_BACKTEST_PARAMS, **(params or {})}
-    if strategy_mode == "combo":
-        market = generate_combined_signal_history(df.copy(), params=params)
-    else:
-        market = generate_signal_history(df.copy(), strategy_name=strategy_name, params=params)
-
-    cash = float(initial_capital)
-    position_units = 0.0
-    position_side = 0
-    entry_price = 0.0
-    trades: List[Dict[str, Any]] = []
-    equity_curve: List[Dict[str, Any]] = []
-    realized_trades: List[Dict[str, Any]] = []
-    equity_values: List[float] = []
-
-    for idx, row in market.iterrows():
-        close = float(row["close"])
-        signal = str(row.get("signal_type", "none"))
-
-        if signal == "long_open" and position_side <= 0:
-            if position_side < 0:
-                pnl = position_units * (close - entry_price)
-                cash += pnl
-                realized_trades.append({"pnl": float(pnl), "type": "cover"})
-            position_units = 1.0
-            position_side = 1
-            entry_price = close
-            trades.append({"type": "long_open", "timestamp": row["timestamp"], "price": float(close)})
-
-        elif signal == "long_add" and position_side == 1:
-            position_units += 0.5
-            trades.append({"type": "long_add", "timestamp": row["timestamp"], "units": 0.5, "price": float(close)})
-
-        elif signal == "long_reduce" and position_side == 1:
-            reduce_units = min(position_units * 0.5, position_units)
-            if reduce_units > 0:
-                pnl = reduce_units * (close - entry_price)
-                cash += pnl
-                position_units -= reduce_units
-                realized_trades.append({"pnl": float(pnl), "type": "long_reduce"})
-                trades.append({"type": "long_reduce", "timestamp": row["timestamp"], "units": float(reduce_units), "pnl": float(pnl)})
-
-        elif signal == "long_close" and position_side == 1:
-            pnl = position_units * (close - entry_price)
-            cash += pnl
-            position_units = 0.0
-            position_side = 0
-            entry_price = 0.0
-            realized_trades.append({"pnl": float(pnl), "type": "long_close"})
-            trades.append({"type": "long_close", "timestamp": row["timestamp"], "pnl": float(pnl)})
-
-        elif signal == "short_open" and position_side >= 0:
-            if position_side > 0:
-                pnl = position_units * (close - entry_price)
-                cash += pnl
-                realized_trades.append({"pnl": float(pnl), "type": "close_long"})
-            position_units = -1.0
-            position_side = -1
-            entry_price = close
-            trades.append({"type": "short_open", "timestamp": row["timestamp"], "price": float(close)})
-
-        elif signal == "short_add" and position_side == -1:
-            position_units -= 0.5
-            trades.append({"type": "short_add", "timestamp": row["timestamp"], "units": 0.5, "price": float(close)})
-
-        elif signal == "short_reduce" and position_side == -1:
-            reduce_units = min(abs(position_units) * 0.5, abs(position_units))
-            if reduce_units > 0:
-                pnl = reduce_units * (entry_price - close)
-                cash += pnl
-                position_units += reduce_units
-                realized_trades.append({"pnl": float(pnl), "type": "short_reduce"})
-                trades.append({"type": "short_reduce", "timestamp": row["timestamp"], "units": float(reduce_units), "pnl": float(pnl)})
-
-        elif signal == "short_close" and position_side == -1:
-            pnl = position_units * (close - entry_price)
-            cash += pnl
-            position_units = 0.0
-            position_side = 0
-            entry_price = 0.0
-            realized_trades.append({"pnl": float(pnl), "type": "short_close"})
-            trades.append({"type": "short_close", "timestamp": row["timestamp"], "pnl": float(pnl)})
-
-        equity = cash + position_units * close
-        equity_values.append(float(equity))
-        equity_curve.append({"timestamp": row["timestamp"], "equity": float(equity)})
-
-    final_equity = cash + position_units * market.iloc[-1]["close"]
-    total_return = (final_equity - initial_capital) / initial_capital
-    win_pnls = [trade.get("pnl", 0.0) for trade in realized_trades]
-    wins = sum(1 for pnl in win_pnls if pnl > 0)
-    win_rate = wins / len(win_pnls) if win_pnls else 0.0
-
-    drawdown = calculate_drawdown(equity_values)
-
-    return {
-        "strategy_name": strategy_name,
-        "params": params,
-        "initial_capital": float(initial_capital),
-        "final_equity": float(final_equity),
-        "total_return": float(total_return),
-        "net_profit": float(final_equity - initial_capital),
-        "trades": len(realized_trades),
-        "win_rate": float(win_rate),
-        "max_drawdown": float(drawdown["max_drawdown"]),
-        "equity_curve": equity_curve,
-        "drawdown_series": drawdown["drawdown_series"],
-        "trade_log": trades,
-    }
+__all__ = [
+    "generate_html_report",
+    "write_html_report",
+]

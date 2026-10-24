@@ -1,158 +1,48 @@
-# fastlink
+name: Market Analysis
 
-Fastlink 是一个基于 OKX 永续合约行情的量化研究与分析框架，聚焦于：
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
-- 行情数据获取与缓存
-- 多周期趋势分析
-- 技术指标计算
-- 策略信号生成
-- 历史胜率统计
-- 策略比较与参数优化
-- 回测逻辑与交易日志
-- 组合策略（双指标 / 多周期共振）
-- 交易图表与完整 HTML 分析报告
-- SQLite 数据库存储与分析历史
-- GitHub Actions 自动运行
-- 可视化 dashboard 报告
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
-## 项目结构
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-```text
-fastlink/
-├── .github/
-│   └── workflows/
-│       └── market_analysis.yml
-├── data/
-│   ├── fastlink.db
-│   └── raw/
-├── logs/
-├── optimization/
-├── reports/
-│   ├── analysis_report.html
-│   ├── analysis_report.md
-│   ├── dashboard.html
-│   ├── equity_curve.png
-│   └── signal_overlay.png
-├── scripts/
-│   └── run_analysis.py
-├── src/
-│   ├── analytics.py
-│   ├── backtest.py
-│   ├── charts.py
-│   ├── config.py
-│   ├── dashboard.py
-│   ├── data_manager.py
-│   ├── indicators.py
-│   ├── main.py
-│   ├── optimizer.py
-│   ├── reporter.py
-│   ├── storage.py
-│   ├── strategy.py
-│   ├── strategy_combo.py
-│   ├── trade_logger.py
-│   └── __init__.py
-├── .gitignore
-├── README.md
-├── requirements.txt
-└── .python-version
-```
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-## 运行方式
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-### 安装依赖
+      - name: Run market analysis
+        run: |
+          python scripts/run_analysis.py \
+            --symbol SOL-USDT-SWAP \
+            --timeframes 5m 15m 30m 1H 2H \
+            --run-backtest \
+            --optimize \
+            --dashboard \
+            --charts
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 运行基础分析
-
-```bash
-python scripts/run_analysis.py --symbol SOL-USDT-SWAP --timeframes 5m 15m 30m 1H 2H
-```
-
-### 执行组合策略分析
-
-```bash
-python scripts/run_analysis.py --symbol SOL-USDT-SWAP --strategy combo --charts
-```
-
-### 执行回测
-
-```bash
-python scripts/run_analysis.py --symbol SOL-USDT-SWAP --run-backtest --charts
-```
-
-### 执行参数优化
-
-```bash
-python scripts/run_analysis.py --symbol SOL-USDT-SWAP --optimize
-```
-
-### 生成 dashboard
-
-```bash
-python scripts/run_analysis.py --symbol SOL-USDT-SWAP --run-backtest --optimize --dashboard --charts
-```
-
-## 已支持的高级能力
-
-### 1. 组合策略（双指标 / 多周期共振）
-
-新增 `src/strategy_combo.py`，支持：
-
-- EMA + MACD + RSI + BOLL + DMI 组合判定
-- 组合多头/空头开仓、加仓、减仓、平仓
-- 多周期 bias 判断
-
-### 2. 更成熟的回测结果画图
-
-新增 `src/charts.py`，支持：
-
-- 权益曲线图：reports/equity_curve.png
-- 信号事件叠加图：reports/signal_overlay.png
-
-### 3. 完整 HTML 报告
-
-`src/reporter.py` 支持输出：
-
-- reports/analysis_report.html
-- 包含市场状态、胜率、回测总结等信息
-
-### 4. SQLite 数据库存储
-
-新增 `src/storage.py`，支持：
-
-- 保存分析运行记录：`data/fastlink.db`
-- 保存策略回测记录
-- 查询最近的历史分析与回测记录
-
-## 其他模块说明
-
-### 交易日志
-
-保存到 `logs/trades.jsonl`，用于后续分析和复盘。
-
-### 组合策略和参数优化
-
-- `strategy combo` 可对多周期共振策略进行观察
-- `--optimize` 可搜索该策略的最优参数组合并持久化
-
-## 说明
-
-这个版本已经进一步接近“实战研究型量化系统”，适合：
-
-- 策略迭代和验证
-- 参数搜索和回测
-- 结果可视化
-- 数据持久化查询
-- 自动化生成分析报告
-
-如果你继续推进，我下一步可以继续增强：
-
-- 资金管理模块
-- 逐笔交易回放可视化
-- 统计表格导出（CSV / Excel）
-- 更复杂策略组合（双层多周期 / 趋势-震荡切换）
+      - name: Commit generated artifacts
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports logs optimization data || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update quant analysis artifacts"
+            git push
+          fi

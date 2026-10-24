@@ -1,107 +1,27 @@
-# SOL 永续合约量化策略分析系统
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.python-version
 
-基于 OKX 公开行情数据，构建一个面向 GitHub 自动化运行的量化分析框架，用于：
+# IDE
+.vscode/
+.idea/
 
-- 采集 OKX K 线数据（5m / 15m / 30m / 1H / 2H）
-- 识别当前市场状态（强势多头 / 弱势多头 / 箱体震荡 / 弱势空头 / 强势空头）
-- 计算常用技术指标（MA / MACD / RSI / BOLL / ATR / DMI）
-- 生成多头与空头信号，并区分开仓、加仓、减仓、平仓
-- 统计历史信号的胜率与收益表现
-- 生成市场分析报告并支持 GitHub Actions 定时执行
+# Local runtime files
+.DS_Store
+*.log
 
-## 项目目录结构
+# Data caches
+cache/
 
-```text
-fastlink/
-├── .github/
-│   └── workflows/
-│       └── market_analysis.yml
-├── data/
-│   └── raw/
-├── reports/
-├── scripts/
-│   └── run_analysis.py
-├── src/
-│   ├── __init__.py
-│   ├── analytics.py
-│   ├── config.py
-│   ├── data_manager.py
-│   ├── indicators.py
-│   ├── main.py
-│   ├── reporter.py
-│   └── strategy.py
-├── .gitignore
-├── README.md
-├── requirements.txt
-└── .python-version
-```
+# Jupyter
+.ipynb_checkpoints/
 
-## 运行方式
-
-### 1）安装依赖
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2）执行分析
-
-```bash
-python scripts/run_analysis.py --symbol BTC-USDT-SWAP
-```
-
-也可以指定多个周期：
-
-```bash
-python scripts/run_analysis.py --symbol SOL-USDT-SWAP --timeframes 5m 15m 1H
-```
-
-### 3）查看报告
-
-生成的分析报告默认保存在：
-
-```text
-reports/analysis_report.md
-```
-
-## 当前支持的数据源与分析维度
-
-- 数据源：OKX
-- 行情类型：K线数据
-- 周期：5m、15m、30m、1H、2H
-- 市场状态：强势多头 / 弱势多头 / 箱体震荡 / 弱势空头 / 强势空头
-- 指标：MA、MACD、RSI、BOLL、ATR、DMI
-- 量化信号：多头开仓 / 多头加仓 / 多头减仓 / 多头平仓 / 空头开仓 / 空头加仓 / 空头减仓 / 空头平仓
-- 评估项：历史胜率、样本数量、持有窗口表现、不同市场状态表现
-
-## GitHub Actions 自动化
-
-仓库已配置 GitHub Actions，以定时任务形式执行分析脚本：
-
-- 触发周期：每 6 小时执行一次
-- 任务内容：
-  - 拉取最新 OKX 数据
-  - 执行技术指标计算
-  - 生成量化信号
-  - 统计历史胜率
-  - 保存分析报告
-
-## 说明
-
-本项目的目标是搭建一个可扩展的量化研究框架，不直接提供实盘交易执行逻辑，而是聚焦在：
-
-- 交易思路验证
-- 信号生成逻辑
-- 历史样本统计
-- 参数优化研究
-- 自动化报告输出
-
-如果你希望进一步扩展，我可以继续为这个仓库补充：
-
-- 更完整的回测模块
-- 参数遍历与优化脚本
-- 更丰富的策略组合逻辑
-- 交易日志与可视化页面
-- 连接数据库的持久化方案
+# Project output
+reports/
+logs/
+data/*.db
+optimization/

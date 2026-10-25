@@ -67,7 +67,93 @@ def summarize_strategy_comparison(frames: Dict[str, pd.DataFrame], lookahead: in
     return rows
 
 
-def generate_html_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict], backtest: Dict[str, object] | None = None) -> str:
+def run_backtest(
+    df: pd.DataFrame,
+    *,
+    initial_capital: float = 10000.0,
+    fee_rate: float = 0.0003,
+    strategy_name: str = "default",
+    lookahead: int = 12,
+) -> Dict[str, object]:
+    """Simple backtest stub used by the report generator.
+
+    This function is intentionally lightweight: it validates the dataframe,
+    computes a basic PnL based on signal_type, and returns summary metrics.
+    """
+    if df.empty:
+        return {
+            "strategy_name": strategy_name,
+            "initial_capital": float(initial_capital),
+            "final_value": float(initial_capital),
+            "total_return": 0.0,
+            "net_profit": 0.0,
+            "win_rate": 0.0,
+            "trades": 0,
+            "max_drawdown": 0.0,
+            "summary": {"num_trades": 0},
+        }
+
+    if "close" not in df.columns:
+        raise ValueError("DataFrame must include a 'close' column for backtesting")
+
+    close = pd.to_numeric(df["close"], errors="coerce")
+    signal_series = df["signal_type"] if "signal_type" in df.columns else pd.Series(["" for _ in range(len(df))], index=df.index)
+
+    cash = float(initial_capital)
+    position = 0
+    entry_price = 0.0
+    trades = 0
+    wins = 0
+    equity_curve: List[float] = []
+    max_equity = float(initial_capital)
+    min_equity = float(initial_capital)
+
+    for idx, row in df.iterrows():
+        signal = str(signal_series.loc[idx]).strip().lower()
+        price = float(close.loc[idx])
+        if pd.isna(price):
+            continue
+
+        if signal in {"long_open", "buy", "long_add"} and position == 0:
+            position = 1
+            entry_price = price
+        elif signal in {"long_close", "sell", "short_open"} and position == 1:
+            pnl_ratio = (price - entry_price) / entry_price if entry_price else 0.0
+            cash = cash * (1.0 + pnl_ratio - fee_rate)
+            trades += 1
+            if pnl_ratio > 0:
+                wins += 1
+            position = 0
+            entry_price = 0.0
+
+        equity_curve.append(cash)
+        max_equity = max(max_equity, cash)
+        min_equity = min(min_equity, cash)
+
+    final_value = cash
+    total_return = (final_value / initial_capital) - 1.0 if initial_capital else 0.0
+    net_profit = final_value - initial_capital
+    win_rate = (wins / trades) if trades else 0.0
+    max_drawdown = (max_equity - min_equity) / max_equity if max_equity else 0.0
+
+    return {
+        "strategy_name": strategy_name,
+        "initial_capital": float(initial_capital),
+        "final_value": float(final_value),
+        "total_return": float(total_return),
+        "net_profit": float(net_profit),
+        "win_rate": float(win_rate),
+        "trades": int(trades),
+        "max_drawdown": float(max_drawdown),
+        "summary": {
+            "num_trades": int(trades),
+            "lookahead": int(lookahead),
+            "fee_rate": float(fee_rate),
+        },
+    }
+
+
+def generate_html_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict], backtest: Dict[str, object] = None) -> str:
     rows = []
     for timeframe, meta in market_data.items():
         rows.append(
@@ -147,7 +233,7 @@ def generate_html_report(symbol: str, market_data: Dict[str, dict], strategy_sum
     return html
 
 
-def write_html_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict], backtest: Dict[str, object] | None = None, report_path: str = "reports/analysis_report.html") -> str:
+def write_html_report(symbol: str, market_data: Dict[str, dict], strategy_summary: Dict[str, object], signal_summary: Dict[str, object], performance: Dict[str, dict], backtest: Dict[str, object], report_path: str) -> str:
     html_text = generate_html_report(symbol, market_data, strategy_summary, signal_summary, performance, backtest)
     with open(report_path, "w", encoding="utf-8") as fp:
         fp.write(html_text)

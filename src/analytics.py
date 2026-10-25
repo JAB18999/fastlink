@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 
@@ -12,7 +12,6 @@ DEFAULT_STRATEGY_PARAMS = {
     "rsi_sell": 45,
     "rsi_add": 60,
     "rsi_reduce": 50,
-    "boll_band": 2.0,
 }
 
 
@@ -114,39 +113,42 @@ def generate_signal_history(df: pd.DataFrame, strategy_name: str = "trend_follow
     return result
 
 
-def aggregate_multi_timeframe_signals(frames: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
-    if not frames:
-        return {"signal_type": "none", "signal_reason": "无数据"}
+def _summarize_returns(series: pd.Series) -> Dict[str, Any]:
+    values = pd.to_numeric(series, errors="coerce").dropna().tolist()
+    count = len(values)
+    if count == 0:
+        return {"count": 0, "win_rate": 0.0, "avg_return": 0.0}
 
-    results = []
-    for timeframe, df in frames.items():
-        if df.empty:
-            continue
-        result = classify_market_state(df)
-        signal = get_latest_signal(df)
-        results.append(
-            {
-                "timeframe": timeframe,
-                "market_state": result["state"],
-                "signal": signal["signal_type"],
-                "score": result["score"],
-            }
-        )
+    wins = sum(1 for value in values if value > 0)
+    avg_return = float(sum(values) / count)
+    return {
+        "count": count,
+        "win_rate": float(wins / count),
+        "avg_return": avg_return,
+    }
 
-    bullish_count = sum(1 for item in results if item["market_state"] in {"强势多头", "弱势多头"})
-    bearish_count = sum(1 for item in results if item["market_state"] in {"强势空头", "弱势空头"})
 
-    if bullish_count > bearish_count:
-        signal_type = "long_bias"
-        reason = "多周期趋势偏多，适合观察多头机会"
-    elif bearish_count > bullish_count:
-        signal_type = "short_bias"
-        reason = "多周期趋势偏空，适合观察空头机会"
-    else:
-        signal_type = "range_bias"
-        reason = "多周期趋势偏震荡，适合区间交易"
+def evaluate_signal_performance(df: pd.DataFrame, lookahead: int = 10) -> Dict[str, Dict[str, Any]]:
+    if df.empty:
+        return {"long_open": {"count": 0, "win_rate": 0.0, "avg_return": 0.0}, "short_open": {"count": 0, "win_rate": 0.0, "avg_return": 0.0}}
 
-    return {"signal_type": signal_type, "signal_reason": reason, "details": results}
+    result = generate_signal_history(df)
+    if result.empty:
+        return {"long_open": {"count": 0, "win_rate": 0.0, "avg_return": 0.0}, "short_open": {"count": 0, "win_rate": 0.0, "avg_return": 0.0}}
+
+    closes = pd.to_numeric(result["close"], errors="coerce")
+    future_returns = closes.shift(-int(lookahead)) / closes - 1.0
+    metrics: Dict[str, Dict[str, Any]] = {}
+
+    for signal_name in ("long_open", "short_open"):
+        signal_mask = result["signal_type"] == signal_name
+        if signal_mask.any():
+            signal_returns = future_returns[signal_mask].dropna()
+            metrics[signal_name] = _summarize_returns(signal_returns)
+        else:
+            metrics[signal_name] = {"count": 0, "win_rate": 0.0, "avg_return": 0.0}
+
+    return metrics
 
 
 def get_latest_signal(df: pd.DataFrame, strategy_name: str = "trend_following", params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -169,6 +171,6 @@ __all__ = [
     "DEFAULT_STRATEGY_PARAMS",
     "classify_market_state",
     "generate_signal_history",
-    "aggregate_multi_timeframe_signals",
+    "evaluate_signal_performance",
     "get_latest_signal",
 ]
